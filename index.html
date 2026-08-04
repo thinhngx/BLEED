@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BLEED — inflate + grain type shader</title>
+<meta name="description" content="BLEED: a WebGL shader that inflates letterforms into grainy, dithered blobs. Drop your own font or SVG.">
+<style>
+  :root{ --ui:#0d0d0d; --line:#262626; --txt:#e8e8e8; --dim:#888; --acc:#c9ff2e; }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#000;color:var(--txt);
+    font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;-webkit-font-smoothing:antialiased}
+  #app{display:flex;height:100%}
+  #panel{width:300px;flex:0 0 300px;overflow-y:auto;background:var(--ui);
+    border-right:1px solid var(--line);padding:14px 14px 40px}
+  #stage{flex:1;display:flex;align-items:center;justify-content:center;padding:24px;min-width:0;
+    background:#000;position:relative}
+  canvas#gl{display:block;box-shadow:0 0 0 1px #1e1e1e}
+  h1{font-size:13px;letter-spacing:.22em;margin:0 0 2px}
+  .sub{color:var(--dim);margin:0 0 14px}
+  fieldset{border:0;border-top:1px solid var(--line);margin:0 0 10px;padding:10px 0 0}
+  legend{color:var(--acc);letter-spacing:.14em;text-transform:uppercase;font-size:9px;padding:0}
+  label{display:block;margin:0 0 8px}
+  .row{display:flex;justify-content:space-between;color:var(--dim);margin-bottom:3px;gap:8px}
+  .row b{color:var(--txt);font-weight:400}
+  input[type=range]{width:100%;height:14px;accent-color:var(--acc);background:transparent}
+  input[type=text],select,textarea{width:100%;background:#000;color:var(--txt);
+    border:1px solid var(--line);padding:5px 6px;font:inherit;border-radius:2px}
+  textarea{resize:vertical;min-height:44px}
+  button{background:#000;color:var(--txt);border:1px solid var(--line);
+    padding:7px 6px;font:inherit;cursor:pointer;border-radius:2px;letter-spacing:.05em}
+  button:hover{border-color:var(--acc);color:var(--acc)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px}
+  .chk{display:flex;align-items:center;gap:6px;color:var(--dim)}
+  .chk input{accent-color:var(--acc)}
+  .note{color:#666;margin-top:8px}
+  .drop{border:1px dashed #333;border-radius:3px;padding:9px;color:#777;text-align:center;margin:2px 0 9px;cursor:pointer}
+  .drop:hover{border-color:var(--acc);color:var(--acc)}
+  .chips{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 8px}
+  .chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);
+    padding:3px 5px;border-radius:2px;color:var(--dim);cursor:pointer;max-width:100%}
+  .chip:hover{border-color:var(--acc);color:var(--acc)}
+  .chip.on{border-color:var(--acc);color:var(--acc)}
+  .chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px}
+  .chip i{font-style:normal;color:#555;padding:0 1px}
+  .chip i:hover{color:#ff5f5f}
+  #veil{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    background:rgba(201,255,46,.06);border:2px dashed var(--acc);color:var(--acc);
+    font-size:14px;letter-spacing:.16em;z-index:9}
+  #veil.on{display:flex}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="panel">
+    <h1>BLEED</h1>
+    <p class="sub">inflate &rarr; threshold &rarr; dome shade &rarr; grain / dither</p>
+
+    <fieldset><legend>Drop in</legend>
+      <div class="drop" id="drop">drop font (.otf .ttf .woff2) or artwork (.svg .png)<br>&mdash; or click to browse</div>
+      <div class="chips" id="fontChips"></div>
+      <div class="chips" id="artChips"></div>
+    </fieldset>
+
+    <div id="ui"></div>
+
+    <fieldset><legend>Presets</legend>
+      <div class="grid" id="builtins"></div>
+      <div class="chips" id="userPresets" style="margin-top:8px"></div>
+      <div class="grid">
+        <button id="savePre">Save current as…</button>
+        <button id="copyPre">Copy params</button>
+      </div>
+    </fieldset>
+
+    <fieldset><legend>Output</legend>
+      <div class="grid">
+        <button id="rnd">New grain seed</button>
+        <button id="png">Save PNG (alpha)</button>
+      </div>
+      <div class="grid" style="margin-top:6px">
+        <button id="reset">Reset all</button>
+        <button id="pasteP">Paste params</button>
+      </div>
+      <p class="note">PNG exports on a transparent background &mdash; the ink keeps its dither, everything
+        else is alpha 0. Bump Render&nbsp;scale for finer grain in print.</p>
+    </fieldset>
+  </div>
+  <div id="stage"><canvas id="gl"></canvas><div id="veil">RELEASE TO LOAD</div></div>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ params */
+const DEFAULTS = {
+  src:0,                                   // 0 = letters, 1 = dropped artwork
+  text:'BLEED', font:'"Helvetica Neue",Helvetica,Arial,sans-serif', weight:900,
+  size:0.13, tracking:-0.04, lineHeight:0.90, rotate:0, offX:0, offY:0,
+  artChan:0, artFit:0.6,
+  inflate:0.09, threshold:0.36, core:0.45, dome:1.00, aa:0.05, emboss:0.50, embossSoft:3.0,
+  lightAng:125, lightAmt:0.30, ambient:0.84, normAmt:6, rim:0.0,
+  warpAmt:0, warpScale:2.4,
+  grainMode:0, grainAmt:0.34, grainScale:1.0, gBias:0.35, dither:0.35, seed:7,
+  dissolve:0.18, dissolveAng:200, dissolveSoft:0.50,
+  invert:0, scale:2, W:800, H:1000
+};
+const P = {...DEFAULTS};
+
+const CTRL = [
+  ['SOURCE', [
+    ['src','select','Source',['Letters','Dropped artwork']],
+    ['text','textarea','Letters (one line each)'],
+    ['font','text','Font stack'],
+    ['weight','range','Weight',100,900,100],
+    ['size','range','Cap size',0.03,1.6,0.005],
+    ['tracking','range','Tracking',-0.25,0.4,0.005],
+    ['lineHeight','range','Line height',0.5,1.6,0.01],
+    ['artFit','range','Artwork size',0.05,1.6,0.005],
+    ['artChan','select','Artwork channel',['Alpha','Luminance','Inverted luminance']],
+    ['rotate','range','Rotate °',-90,90,90],
+    ['offX','range','Shift X',-0.8,0.8,0.005],
+    ['offY','range','Shift Y',-0.8,0.8,0.005],
+  ]],
+  ['INFLATE', [
+    ['inflate','range','Inflate (σ / cap)',0.005,0.4,0.001],
+    ['threshold','range','Fatness (threshold)',0.02,0.9,0.005],
+    ['core','range','Dome depth',0.02,0.9,0.005],
+    ['dome','range','Dome curve',0.15,2.0,0.01],
+    ['aa','range','Edge softness',0.0,0.25,0.002],
+    ['emboss','range','Emboss source',0,1.5,0.01],
+    ['embossSoft','range','Emboss softness',0.5,12,0.1],
+  ]],
+  ['SHADING', [
+    ['lightAng','range','Light angle °',0,360,1],
+    ['lightAmt','range','Light amount',0,1,0.01],
+    ['ambient','range','Ambient',0,1,0.01],
+    ['normAmt','range','Crease strength',0,30,0.1],
+    ['rim','range','Rim light',0,1,0.01],
+    ['warpAmt','range','Organic warp',0,0.06,0.001],
+    ['warpScale','range','Warp scale',0.4,8,0.05],
+  ]],
+  ['GRAIN', [
+    ['grainMode','select','Noise',['White','Value (clumpy)','Bayer 8×8','Blue-ish']],
+    ['grainAmt','range','Grain amount',0,1,0.01],
+    ['grainScale','range','Grain size',0.3,6,0.05],
+    ['gBias','range','Grain to edges',0,1,0.01],
+    ['dither','range','1-bit dither',0,1,0.01],
+    ['dissolve','range','Dissolve',0,1,0.01],
+    ['dissolveAng','range','Dissolve angle °',0,360,1],
+    ['dissolveSoft','range','Dissolve falloff',0.05,1,0.01],
+  ]],
+  ['CANVAS', [
+    ['W','range','Width',400,2000,10],
+    ['H','range','Height',400,2000,10],
+    ['scale','range','Render scale',1,4,1],
+    ['invert','check','Invert'],
+  ]],
+];
+
+const BUILTIN = {
+  'MAHBS pillow':{src:0,inflate:.09,threshold:.36,core:.45,dome:1,aa:.05,emboss:.5,embossSoft:3,
+    lightAng:125,lightAmt:.3,ambient:.84,normAmt:6,rim:0,grainMode:0,grainAmt:.34,grainScale:1,
+    gBias:.35,dither:.35,dissolve:.18,dissolveAng:200,dissolveSoft:.5,warpAmt:0,
+    size:.13,tracking:-.04,lineHeight:.9,rotate:0},
+  'Molten blob':{src:0,inflate:.049,threshold:.15,core:.9,dome:.82,aa:.018,emboss:1.05,embossSoft:12,
+    lightAng:197,lightAmt:1,ambient:1,normAmt:10,rim:1,warpAmt:.03,warpScale:1.45,
+    grainMode:3,grainAmt:.02,grainScale:.3,gBias:1,dither:.59,dissolve:1,dissolveAng:53,dissolveSoft:.34,
+    size:.16,tracking:-.085,lineHeight:.9,rotate:0},
+  'Spray dissolve':{src:0,inflate:.10,threshold:.30,core:.45,dome:.9,aa:.05,emboss:.3,embossSoft:4,
+    lightAng:100,lightAmt:.35,ambient:.5,normAmt:4,rim:.15,grainMode:0,grainAmt:.5,grainScale:1.3,
+    gBias:.1,dither:1,dissolve:.7,dissolveAng:250,dissolveSoft:.8,warpAmt:.008,warpScale:3},
+  'Hard balloon':{src:0,inflate:.06,threshold:.44,core:.16,dome:.4,aa:.004,emboss:.2,embossSoft:2,
+    lightAng:135,lightAmt:.9,ambient:.15,normAmt:16,rim:.5,grainMode:1,grainAmt:.12,grainScale:2.2,
+    gBias:.5,dither:0,dissolve:.05,warpAmt:.003,warpScale:2},
+};
+
+/* ------------------------------------------------------------------- webgl */
+const cv=document.getElementById('gl');
+const gl=cv.getContext('webgl2',{preserveDrawingBuffer:true,antialias:false,alpha:true});
+if(!gl){ document.body.innerHTML='<p style="padding:20px">WebGL2 required.</p>'; throw 0; }
+const hasF16=!!gl.getExtension('EXT_color_buffer_float');
+
+const VS=`#version 300 es
+in vec2 p; out vec2 uv;
+void main(){ uv=vec2(p.x*0.5+0.5, 0.5-p.y*0.5); gl_Position=vec4(p,0.,1.); }`;
+
+const FS_BLUR=`#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D src; uniform vec2 texel, dir; uniform float sigma;
+void main(){
+  float s=max(sigma,0.0001), stride=max(1.0,s/16.0), sum=0., wsum=0.;
+  for(int i=-72;i<=72;i++){
+    float t=float(i)*stride;
+    if(abs(t)>s*2.8) continue;
+    float w=exp(-0.5*t*t/(s*s));
+    sum+=w*texture(src,uv+dir*texel*t).r; wsum+=w;
+  }
+  o=vec4(sum/wsum,0.,0.,1.);
+}`;
+
+const FS_MAIN=`#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D field, glyph;
+uniform vec2 texel;
+uniform float uThr,uCore,uDome,uAA,uEmb,uEmbS;
+uniform float uLightAng,uLightAmt,uAmb,uNorm,uRim;
+uniform float uWarpAmt,uWarpScale;
+uniform float uMode,uGrain,uGScale,uGBias,uDither,uSeed;
+uniform float uDis,uDisAng,uDisSoft;
+uniform float uInvert,uAlphaOut;
+
+float hash(vec2 p){                      // Hoskins hash12 - no sin() banding
+  vec3 p3=fract(vec3(p.xyx)*0.1031);
+  p3+=dot(p3,p3.yzx+33.33);
+  return fract((p3.x+p3.y)*p3.z); }
+float vnoise(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.-2.*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y); }
+float fbm(vec2 p){ float a=.5,s=0.; for(int i=0;i<5;i++){ s+=a*vnoise(p); p*=2.03; a*=.5; } return s; }
+float bayer8(vec2 c){ vec2 p=floor(mod(c,8.0)); int x=int(p.x),y=int(p.y),v=0;
+  for(int b=2;b>=0;b--){ int xb=(x>>b)&1,yb=(y>>b)&1; v=v*4+((yb^xb)*2+xb); }
+  return (float(v)+0.5)/64.0; }
+float noiseAt(vec2 c){
+  if(uMode<0.5)      return hash(c+uSeed*17.0);
+  else if(uMode<1.5) return vnoise(c*0.5+uSeed*7.0);
+  else if(uMode<2.5) return bayer8(c);
+  return fract(hash(c+uSeed)*0.6+vnoise((c+uSeed)*0.33)*0.4+bayer8(c)*0.3); }
+float F(vec2 q){ return texture(field,q).r; }
+
+void main(){
+  vec2 q=uv;
+  if(uWarpAmt>0.0){
+    float w1=fbm(uv*uWarpScale*3.0+uSeed*3.1)-0.5;
+    float w2=fbm(uv*uWarpScale*3.0+vec2(5.2,1.3)+uSeed*3.1)-0.5;
+    q+=vec2(w1,w2)*uWarpAmt;
+  }
+  float d=F(q);
+
+  /* 1 - silhouette: threshold the blurred field. this is what merges strokes,
+        rounds corners and closes tight counters                              */
+  float mask=smoothstep(uThr-uAA*0.5-texel.y, uThr+uAA*0.5+texel.y, d);
+
+  /* 2 - inflate: inside-ness becomes a hemispherical height                  */
+  float hgt=clamp((d-uThr)/max(uCore,0.001),0.0,1.0);
+  float dome=pow(sqrt(max(1.0-(1.0-hgt)*(1.0-hgt),0.0)), uDome);
+
+  /* 3 - fake normal from the height gradient + emboss the source back in     */
+  float gx=(F(q+vec2(texel.x,0.))-F(q-vec2(texel.x,0.)))/max(uCore,0.001);
+  float gy=(F(q+vec2(0.,texel.y))-F(q-vec2(0.,texel.y)))/max(uCore,0.001);
+  float ex=0., ey=0.;
+  if(uEmb>0.0){
+    vec2 e=texel*uEmbS;
+    float l=0.,r=0.,u_=0.,dn=0.;
+    for(int k=-1;k<=1;k++){
+      float f=float(k)*0.6;
+      l +=texture(glyph,q+vec2(-e.x,e.y*f)).r;
+      r +=texture(glyph,q+vec2( e.x,e.y*f)).r;
+      u_+=texture(glyph,q+vec2(e.x*f,-e.y)).r;
+      dn+=texture(glyph,q+vec2(e.x*f, e.y)).r;
+    }
+    ex=(r-l)/3.0; ey=(dn-u_)/3.0;
+  }
+  vec3 n=normalize(vec3(-gx*uNorm*40.0-ex*uEmb*3.0,
+                        -gy*uNorm*40.0-ey*uEmb*3.0, 1.0));
+  float a=radians(uLightAng);
+  vec3 L=normalize(vec3(cos(a),sin(a),0.85));
+  float lam=clamp(dot(n,L),0.0,1.0);
+  float rim=pow(1.0-dome,3.0)*uRim;
+  float lit=uAmb+(1.0-uAmb)*mix(1.0,lam,uLightAmt);
+  lit=clamp(lit*mix(0.55,1.0,dome)+rim,0.0,1.2);
+  float v=lit*mask;
+
+  /* 4 - directional dissolve, roughed up with fbm                            */
+  if(uDis>0.0){
+    float da=radians(uDisAng);
+    float t=dot(uv-0.5,vec2(cos(da),sin(da)))+0.5;
+    float ramp=smoothstep(0.0,max(uDisSoft,0.001),t);
+    ramp=mix(1.0,ramp*mix(1.0,0.3+fbm(uv*6.0+uSeed)*1.2,0.6),uDis);
+    v*=ramp;
+  }
+  v=clamp(v,0.0,1.0);
+
+  /* 5 - grain: multiplicative fine grain + optional 1-bit dither             */
+  vec2 c=floor(gl_FragCoord.xy/max(uGScale,0.05));
+  float g=noiseAt(c);
+  float gAmt=uGrain*mix(1.0,1.0-dome*0.9,uGBias);   // clean core, gritty shoulder
+  float grainy=clamp(v*(1.0-gAmt*(g-0.45)*1.8),0.0,1.0);
+  float ink=mix(grainy, step(g,grainy), clamp(uDither,0.0,1.0));
+  ink*=step(0.004,v);                                // no fireflies in empty areas
+  if(uInvert>0.5) ink=1.0-ink;
+
+  if(uAlphaOut>0.5){
+    /* transparent export, premultiplied: ink colour is white (or black when
+       inverted) and alpha carries the dither                                 */
+    float al = uInvert>0.5 ? 1.0-ink : ink;
+    vec3 rgb = uInvert>0.5 ? vec3(0.0) : vec3(al);
+    o=vec4(rgb,al);
+  } else {
+    o=vec4(vec3(ink),1.0);
+  }
+}`;
+
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);
+  if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o;}
+function prog(f){const p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,VS));
+  gl.attachShader(p,sh(gl.FRAGMENT_SHADER,f));gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(p));return p;}
+const pBlur=prog(FS_BLUR), pMain=prog(FS_MAIN);
+const vao=gl.createVertexArray(); gl.bindVertexArray(vao);
+const vb=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,vb);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+function mkTex(){const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);return t;}
+const texCov=mkTex(), texA=mkTex(), texB=mkTex();
+const fbA=gl.createFramebuffer(), fbB=gl.createFramebuffer();
+let RW=0,RH=0;
+function sizeTargets(w,h){
+  RW=w; RH=h;
+  const ifmt=hasF16?gl.R16F:gl.R8, typ=hasF16?gl.HALF_FLOAT:gl.UNSIGNED_BYTE;
+  [[texA,fbA],[texB,fbB]].forEach(([t,f])=>{
+    gl.bindTexture(gl.TEXTURE_2D,t);
+    gl.texImage2D(gl.TEXTURE_2D,0,ifmt,w,h,0,gl.RED,typ,null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER,f);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
+  });
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+}
+
+/* ------------------------------------------------- source -> coverage map */
+const t2=document.createElement('canvas'), c2=t2.getContext('2d',{willReadFrequently:true});
+let usedPx=100;
+let ART=null;                                   // {name, img}
+
+function buildCoverage(w,h){
+  t2.width=w; t2.height=h;
+  c2.setTransform(1,0,0,1,0,0);
+  c2.clearRect(0,0,w,h); c2.fillStyle='#000'; c2.fillRect(0,0,w,h);
+  const rot=P.rotate;
+  c2.save();
+  if(rot){ c2.translate(w/2,h/2); c2.rotate(rot*Math.PI/180); c2.translate(-h/2,-w/2); }
+  const bw=rot?h:w, bh=rot?w:h;
+
+  if(P.src===1 && ART){
+    /* artwork: draw to a scratch canvas, then pull the requested channel */
+    const s=document.createElement('canvas'); s.width=w; s.height=h;
+    const sc=s.getContext('2d',{willReadFrequently:true});
+    const iw=ART.img.naturalWidth||ART.img.width, ih=ART.img.naturalHeight||ART.img.height;
+    const target=P.artFit*bh, k=target/ih, dw=iw*k, dh=ih*k;
+    sc.save();
+    if(rot){ sc.translate(w/2,h/2); sc.rotate(rot*Math.PI/180); sc.translate(-h/2,-w/2); }
+    sc.drawImage(ART.img, bw/2-dw/2+P.offX*bw, bh/2-dh/2+P.offY*bh, dw, dh);
+    sc.restore();
+    const px=sc.getImageData(0,0,w,h), o=c2.createImageData(w,h);
+    for(let i=0;i<px.data.length;i+=4){
+      const al=px.data[i+3]/255;
+      const lum=(px.data[i]*0.299+px.data[i+1]*0.587+px.data[i+2]*0.114)/255;
+      let cvg;
+      if(P.artChan===0)      cvg=al;              // alpha (best for SVG)
+      else if(P.artChan===1) cvg=lum*al;          // light-on-dark art
+      else                   cvg=(1-lum)*al;      // dark-on-light art
+      const b=Math.round(cvg*255);
+      o.data[i]=o.data[i+1]=o.data[i+2]=b; o.data[i+3]=255;
+    }
+    c2.restore(); c2.putImageData(o,0,0);
+    usedPx=dh;
+    return t2;
+  }
+
+  /* letters */
+  const px=P.size*bh*1.35;                        // ~em/cap ratio of a grotesque
+  c2.fillStyle='#fff'; c2.textBaseline='middle'; c2.textAlign='center';
+  c2.font=`${P.weight} ${px}px ${P.font}`;
+  const track=P.tracking*px, lh=px*P.lineHeight;
+  const lines=String(P.text).split('\n');
+  const y0=bh/2-(lines.length-1)*lh/2;
+  lines.forEach((ln,i)=>{
+    const chars=[...ln];
+    let total=0; chars.forEach(ch=>total+=c2.measureText(ch).width+track); total-=track;
+    let x=bw/2-total/2+P.offX*bw;
+    const y=y0+i*lh+P.offY*bh;
+    chars.forEach(ch=>{ const cw=c2.measureText(ch).width; c2.fillText(ch,x+cw/2,y); x+=cw+track; });
+  });
+  c2.restore();
+  usedPx=px;
+  return t2;
+}
+function upload(tex,src){
+  gl.bindTexture(gl.TEXTURE_2D,tex); gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.LUMINANCE,gl.LUMINANCE,gl.UNSIGNED_BYTE,src);
+}
+
+/* -------------------------------------------------------------- render */
+let raf=0;
+const schedule=()=>{ cancelAnimationFrame(raf); raf=requestAnimationFrame(()=>{render();saveState();}); };
+function render(alphaOut){
+  const S=Math.round(P.scale), W=Math.round(P.W), H=Math.round(P.H), w=W*S, h=H*S;
+  if(cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; }
+  const st=document.getElementById('stage');
+  const fit=Math.min(1,(st.clientWidth-40)/W,(st.clientHeight-40)/H);
+  cv.style.width=Math.round(W*fit)+'px'; cv.style.height=Math.round(H*fit)+'px';
+  if(RW!==w||RH!==h) sizeTargets(w,h);
+
+  upload(texCov, buildCoverage(w,h));
+  const sigma=Math.max(0.75, P.inflate*usedPx);
+
+  gl.bindVertexArray(vao);
+  const tx=1/w, ty=1/h;
+  gl.useProgram(pBlur);
+  const Ub=n=>gl.getUniformLocation(pBlur,n);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fbA); gl.viewport(0,0,w,h);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,texCov);
+  gl.uniform1i(Ub('src'),0); gl.uniform2f(Ub('texel'),tx,ty);
+  gl.uniform1f(Ub('sigma'),sigma); gl.uniform2f(Ub('dir'),1,0);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fbB);
+  gl.bindTexture(gl.TEXTURE_2D,texA); gl.uniform2f(Ub('dir'),0,1);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,w,h);
+  gl.useProgram(pMain);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,texB);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,texCov);
+  const U=n=>gl.getUniformLocation(pMain,n);
+  gl.uniform1i(U('field'),0); gl.uniform1i(U('glyph'),1);
+  gl.uniform2f(U('texel'),tx,ty);
+  gl.uniform1f(U('uThr'),P.threshold); gl.uniform1f(U('uCore'),P.core);
+  gl.uniform1f(U('uDome'),P.dome);     gl.uniform1f(U('uAA'),P.aa);
+  gl.uniform1f(U('uEmb'),P.emboss);    gl.uniform1f(U('uEmbS'),P.embossSoft*S);
+  gl.uniform1f(U('uLightAng'),P.lightAng); gl.uniform1f(U('uLightAmt'),P.lightAmt);
+  gl.uniform1f(U('uAmb'),P.ambient);   gl.uniform1f(U('uNorm'),P.normAmt);
+  gl.uniform1f(U('uRim'),P.rim);
+  gl.uniform1f(U('uWarpAmt'),P.warpAmt); gl.uniform1f(U('uWarpScale'),P.warpScale);
+  gl.uniform1f(U('uMode'),P.grainMode); gl.uniform1f(U('uGrain'),P.grainAmt);
+  gl.uniform1f(U('uGScale'),P.grainScale*S); gl.uniform1f(U('uGBias'),P.gBias);
+  gl.uniform1f(U('uDither'),P.dither); gl.uniform1f(U('uSeed'),P.seed);
+  gl.uniform1f(U('uDis'),P.dissolve); gl.uniform1f(U('uDisAng'),P.dissolveAng);
+  gl.uniform1f(U('uDisSoft'),P.dissolveSoft);
+  gl.uniform1f(U('uInvert'),P.invert?1:0);
+  gl.uniform1f(U('uAlphaOut'),alphaOut?1:0);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+}
+
+/* --------------------------------------------------------------- controls */
+const ui=document.getElementById('ui');
+const rowFor={};
+CTRL.forEach(([title,items])=>{
+  const fs=document.createElement('fieldset');
+  fs.innerHTML=`<legend>${title}</legend>`;
+  items.forEach(([key,kind,label,a,b,c])=>{
+    const wrap=document.createElement('label');
+    wrap.dataset.k=key;
+    if(kind==='range'){
+      wrap.innerHTML=`<span class="row"><span>${label}</span><b></b></span>
+        <input type="range" min="${a}" max="${b}" step="${c}">`;
+      const inp=wrap.querySelector('input'), out=wrap.querySelector('b');
+      inp.value=P[key]; out.textContent=P[key];
+      inp.oninput=()=>{ P[key]=parseFloat(inp.value); out.textContent=inp.value; schedule(); };
+    } else if(kind==='check'){
+      wrap.innerHTML=`<span class="chk"><input type="checkbox">${label}</span>`;
+      const inp=wrap.querySelector('input'); inp.checked=!!P[key];
+      inp.onchange=()=>{ P[key]=inp.checked?1:0; schedule(); };
+    } else if(kind==='select'){
+      wrap.innerHTML=`<span class="row"><span>${label}</span></span><select>${
+        a.map((o,i)=>`<option value="${i}">${o}</option>`).join('')}</select>`;
+      const inp=wrap.querySelector('select'); inp.value=P[key];
+      inp.onchange=()=>{ P[key]=parseInt(inp.value); syncUI(); schedule(); };
+    } else {
+      wrap.innerHTML=`<span class="row"><span>${label}</span></span>`+
+        (kind==='textarea'?'<textarea spellcheck="false"></textarea>':'<input type="text">');
+      const inp=wrap.querySelector(kind==='textarea'?'textarea':'input');
+      inp.value=P[key];
+      inp.oninput=()=>{ P[key]=inp.value; schedule(); };
+    }
+    rowFor[key]=wrap;
+    fs.appendChild(wrap);
+  });
+  ui.appendChild(fs);
+});
+const TEXT_ONLY=['text','font','weight','size','tracking','lineHeight'];
+const ART_ONLY=['artFit','artChan'];
+function syncUI(){
+  Object.entries(rowFor).forEach(([k,l])=>{
+    const r=l.querySelector('input[type=range]'), b=l.querySelector('b'),
+          s=l.querySelector('select'), t=l.querySelector('textarea'),
+          x=l.querySelector('input[type=text]'), ck=l.querySelector('input[type=checkbox]');
+    if(r){ r.value=P[k]; b.textContent=P[k]; }
+    if(s) s.value=P[k];
+    if(t) t.value=P[k];
+    if(x) x.value=P[k];
+    if(ck) ck.checked=!!P[k];
+  });
+  const art=P.src===1;
+  TEXT_ONLY.forEach(k=>rowFor[k].style.display=art?'none':'block');
+  ART_ONLY.forEach(k=>rowFor[k].style.display=art?'block':'none');
+  drawChips();
+}
+
+/* ------------------------------------------------------- drops: font / art */
+const drop=document.getElementById('drop'), veil=document.getElementById('veil');
+const picker=document.createElement('input');
+picker.type='file'; picker.accept='.otf,.ttf,.woff,.woff2,.svg,.png,.jpg,.jpeg,.webp';
+picker.multiple=true; picker.style.display='none'; document.body.appendChild(picker);
+drop.onclick=()=>picker.click();
+picker.onchange=()=>handleFiles([...picker.files]);
+['dragenter','dragover'].forEach(e=>addEventListener(e,ev=>{ev.preventDefault();veil.classList.add('on');}));
+['dragleave','drop'].forEach(e=>addEventListener(e,ev=>{ev.preventDefault();
+  if(e==='dragleave'&&ev.relatedTarget) return; veil.classList.remove('on');}));
+addEventListener('drop',ev=>{ ev.preventDefault(); handleFiles([...(ev.dataTransfer?.files||[])]); });
+
+const FONTS=[];
+async function handleFiles(files){
+  for(const f of files){
+    const ext=(f.name.split('.').pop()||'').toLowerCase();
+    if(['otf','ttf','woff','woff2'].includes(ext)){
+      const fam=f.name.replace(/\.[^.]+$/,'').replace(/[^\w\s-]/g,'').trim()||('Font'+FONTS.length);
+      try{
+        const ff=new FontFace(fam, await f.arrayBuffer());
+        await ff.load(); document.fonts.add(ff);
+        if(!FONTS.includes(fam)) FONTS.push(fam);
+        P.font=`"${fam}"`; P.src=0;
+      }catch(e){ alert('Could not load '+f.name+'\n'+e.message); }
+    } else if(['svg','png','jpg','jpeg','webp'].includes(ext)){
+      const url=URL.createObjectURL(f), img=new Image();
+      img.decoding='sync';
+      await new Promise((res,rej)=>{ img.onload=res; img.onerror=()=>rej(new Error('decode failed')); img.src=url; })
+        .catch(e=>alert('Could not load '+f.name));
+      ART={name:f.name, img};
+      P.src=1; P.artChan = ext==='svg' ? 0 : 2;
+    }
+  }
+  syncUI(); schedule();
+}
+function drawChips(){
+  const fc=document.getElementById('fontChips'), ac=document.getElementById('artChips');
+  fc.innerHTML = FONTS.length
+    ? FONTS.map(f=>`<span class="chip ${P.font.includes(f)?'on':''}" data-font="${f}">
+         <span>A ${f}</span></span>`).join('')
+    : '<span style="color:#555">no custom fonts loaded</span>';
+  fc.querySelectorAll('[data-font]').forEach(el=>el.onclick=()=>{
+    P.font=`"${el.dataset.font}"`; P.src=0; syncUI(); schedule(); });
+  ac.innerHTML = ART
+    ? `<span class="chip on" id="artChip"><span>⬡ ${ART.name}</span><i title="remove">✕</i></span>`
+    : '';
+  const chip=document.getElementById('artChip');
+  if(chip){
+    chip.querySelector('i').onclick=e=>{ e.stopPropagation(); ART=null; P.src=0; syncUI(); schedule(); };
+    chip.onclick=()=>{ P.src=1; syncUI(); schedule(); };
+  }
+}
+
+/* ----------------------------------------------------------------- presets */
+const LS_PRE='bleed.presets.v1', LS_ST='bleed.state.v1';
+const readUser=()=>{ try{ return JSON.parse(localStorage.getItem(LS_PRE)||'{}'); }catch(e){ return {}; } };
+const writeUser=o=>localStorage.setItem(LS_PRE, JSON.stringify(o));
+function applyPreset(o){ Object.assign(P,o); syncUI(); schedule(); }
+function drawPresets(){
+  const bi=document.getElementById('builtins');
+  bi.innerHTML=Object.keys(BUILTIN).map(k=>`<button data-bi="${k}">${k}</button>`).join('');
+  bi.querySelectorAll('[data-bi]').forEach(b=>b.onclick=()=>applyPreset(BUILTIN[b.dataset.bi]));
+  const u=readUser(), up=document.getElementById('userPresets');
+  const keys=Object.keys(u);
+  up.innerHTML=keys.length
+    ? keys.map(k=>`<span class="chip" data-up="${encodeURIComponent(k)}"><span>${k}</span><i title="delete">✕</i></span>`).join('')
+    : '<span style="color:#555">no saved presets yet</span>';
+  up.querySelectorAll('[data-up]').forEach(el=>{
+    const name=decodeURIComponent(el.dataset.up);
+    el.querySelector('span').onclick=()=>applyPreset(u[name]);
+    el.querySelector('i').onclick=e=>{ e.stopPropagation();
+      const all=readUser(); delete all[name]; writeUser(all); drawPresets(); };
+  });
+}
+const snapshot=()=>{ const o={}; Object.keys(DEFAULTS).forEach(k=>o[k]=P[k]); return o; };
+document.getElementById('savePre').onclick=()=>{
+  const name=(prompt('Preset name','My look')||'').trim();
+  if(!name) return;
+  const all=readUser(); all[name]=snapshot(); writeUser(all); drawPresets();
+};
+document.getElementById('copyPre').onclick=async()=>{
+  const s=JSON.stringify(snapshot());
+  try{ await navigator.clipboard.writeText(s); alert('Params copied to clipboard.'); }
+  catch(e){ prompt('Copy these params:', s); }
+};
+document.getElementById('pasteP').onclick=()=>{
+  const s=prompt('Paste params JSON'); if(!s) return;
+  try{ applyPreset(JSON.parse(s)); }catch(e){ alert('Not valid JSON'); }
+};
+document.getElementById('reset').onclick=()=>{ ART=null; applyPreset({...DEFAULTS}); };
+
+/* --------------------------------------------------------- state + output */
+let stTimer=0;
+function saveState(){ clearTimeout(stTimer);
+  stTimer=setTimeout(()=>{ try{ localStorage.setItem(LS_ST,JSON.stringify(snapshot())); }catch(e){} },400); }
+function loadState(){
+  try{ const s=JSON.parse(localStorage.getItem(LS_ST)||'null');
+    if(s){ Object.assign(P,s); if(P.src===1&&!ART) P.src=0; } }catch(e){}
+}
+document.getElementById('rnd').onclick=()=>{ P.seed=+(Math.random()*100).toFixed(2); schedule(); };
+document.getElementById('png').onclick=()=>{
+  render(true);                                   // transparent pass
+  cv.toBlob(b=>{
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(b);
+    const tag=(P.src===1&&ART?ART.name.replace(/\.[^.]+$/,''):String(P.text).split('\n')[0]||'bleed');
+    a.download=`bleed-${tag.replace(/[^\w-]/g,'_')}-${Date.now()}.png`;
+    a.click(); render();                          // back to opaque preview
+  },'image/png');
+};
+
+addEventListener('resize',schedule);
+loadState(); drawPresets(); syncUI();
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(schedule);
+schedule();
+</script>
+</body>
+</html>
