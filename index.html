@@ -83,7 +83,9 @@
         <button id="copyPre">Copy params</button>
         <button id="pasteP">Paste params</button>
       </div>
-      <p class="note">↻ overwrite with current settings · ✎ rename · ✕ delete.
+      <p class="note">Presets are a material recipe only — inflate, dome, grain, dissolve, light.
+        They never touch your letters, font, weight, cap size, tracking, or canvas size.<br>
+        ↻ overwrite with current settings · ✎ rename · ✕ delete.
         An orange dot means you've drifted from the stored values.</p>
     </fieldset>
 
@@ -117,6 +119,20 @@ const DEFAULTS = {
   invert:0, scale:2, W:1200, H:800
 };
 const P = {...DEFAULTS};
+
+/* presets are a MATERIAL/shader recipe only — they never touch what you're
+   inflating (src, text, font, weight, size, tracking, lineHeight, rotate,
+   offX/offY, artChan/artFit) or your canvas setup (W, H, scale). Switching
+   or updating a preset only ever changes these keys.                      */
+const EFFECT_KEYS = [
+  'inflate','threshold','core','dome','aa','emboss','embossSoft',
+  'lightAng','lightAmt','ambient','normAmt','rim',
+  'warpAmt','warpScale',
+  'grainMode','grainAmt','grainScale','gBias','dither',
+  'dissolve','dissolveAng','dissolveSoft',
+  'invert',
+];
+const pickEffect=o=>{ const r={}; EFFECT_KEYS.forEach(k=>{ if(k in o) r[k]=o[k]; }); return r; };
 
 const CTRL = [
   ['SOURCE', [
@@ -169,19 +185,17 @@ const CTRL = [
   ]],
 ];
 
-const FACTORY = {
-  'MAHBS pillow':{src:0,inflate:.09,threshold:.36,core:.45,dome:1,aa:.05,emboss:.5,embossSoft:3,
+const FACTORY = {                                // effect keys only — see EFFECT_KEYS
+  'MAHBS pillow':{inflate:.09,threshold:.36,core:.45,dome:1,aa:.05,emboss:.5,embossSoft:3,
     lightAng:125,lightAmt:.3,ambient:.84,normAmt:6,rim:0,grainMode:0,grainAmt:.34,grainScale:1,
-    gBias:.35,dither:.35,dissolve:.18,dissolveAng:200,dissolveSoft:.5,warpAmt:0,
-    size:.13,tracking:-.04,lineHeight:.9,rotate:0},
-  'Molten blob':{src:0,inflate:.049,threshold:.15,core:.9,dome:.82,aa:.018,emboss:1.05,embossSoft:12,
+    gBias:.35,dither:.35,dissolve:.18,dissolveAng:200,dissolveSoft:.5,warpAmt:0},
+  'Molten blob':{inflate:.049,threshold:.15,core:.9,dome:.82,aa:.018,emboss:1.05,embossSoft:12,
     lightAng:197,lightAmt:1,ambient:1,normAmt:10,rim:1,warpAmt:.03,warpScale:1.45,
-    grainMode:3,grainAmt:.02,grainScale:.3,gBias:1,dither:.59,dissolve:1,dissolveAng:53,dissolveSoft:.34,
-    size:.29,tracking:-.085,lineHeight:.9,rotate:0,W:1420,H:1000},
-  'Spray dissolve':{src:0,inflate:.10,threshold:.30,core:.45,dome:.9,aa:.05,emboss:.3,embossSoft:4,
+    grainMode:3,grainAmt:.02,grainScale:.3,gBias:1,dither:.59,dissolve:1,dissolveAng:53,dissolveSoft:.34},
+  'Spray dissolve':{inflate:.10,threshold:.30,core:.45,dome:.9,aa:.05,emboss:.3,embossSoft:4,
     lightAng:100,lightAmt:.35,ambient:.5,normAmt:4,rim:.15,grainMode:0,grainAmt:.5,grainScale:1.3,
     gBias:.1,dither:1,dissolve:.7,dissolveAng:250,dissolveSoft:.8,warpAmt:.008,warpScale:3},
-  'Hard balloon':{src:0,inflate:.06,threshold:.44,core:.16,dome:.4,aa:.004,emboss:.2,embossSoft:2,
+  'Hard balloon':{inflate:.06,threshold:.44,core:.16,dome:.4,aa:.004,emboss:.2,embossSoft:2,
     lightAng:135,lightAmt:.9,ambient:.15,normAmt:16,rim:.5,grainMode:1,grainAmt:.12,grainScale:2.2,
     gBias:.5,dither:0,dissolve:.05,warpAmt:.003,warpScale:2},
 };
@@ -582,7 +596,7 @@ function removeFont(fam){
 
 /* ----------------------------------------------------------------- presets */
 const LS_PRE='bleed.presets.v2', LS_OLD='bleed.presets.v1', LS_ST='bleed.state.v1';
-const snapshot=()=>{ const o={}; Object.keys(DEFAULTS).forEach(k=>o[k]=P[k]); return o; };
+const snapshot=()=>pickEffect(P);
 
 /* the library is one editable list: factory entries are seeded in on first run,
    after that every preset can be renamed, overwritten or deleted             */
@@ -591,7 +605,7 @@ const factoryList=()=>Object.entries(FACTORY).map(([name,params])=>({name,params
 function loadLib(){
   try{
     const v2=JSON.parse(localStorage.getItem(LS_PRE)||'null');
-    if(Array.isArray(v2)){ LIB=v2; return; }
+    if(Array.isArray(v2)){ LIB=v2; sanitizeLib(); return; }
   }catch(e){}
   LIB=factoryList();
   try{                                            // carry over v1 user presets
@@ -600,6 +614,12 @@ function loadLib(){
       if(!LIB.some(p=>p.name===name)) LIB.push({name,params});
     });
   }catch(e){}
+  sanitizeLib();
+}
+/* strip any stray input/canvas keys that older versions used to store
+   (e.g. a preset saved before this fix, or JSON pasted in from Copy params) */
+function sanitizeLib(){
+  LIB.forEach(p=>{ p.params=pickEffect(p.params); });
   saveLib();
 }
 const saveLib=()=>{ try{ localStorage.setItem(LS_PRE, JSON.stringify(LIB)); }catch(e){} };
@@ -608,7 +628,7 @@ const uniqueName=(base,skip=-1)=>{
   while(LIB.some((p,k)=>k!==skip && p.name===n)) n=`${base} ${i++}`;
   return n;
 };
-function applyPreset(o,name){ Object.assign(P,o); activePre=name??null; syncUI(); schedule(); }
+function applyPreset(o,name){ Object.assign(P,pickEffect(o)); activePre=name??null; syncUI(); schedule(); }
 function drifted(i){
   const s=snapshot(), p=LIB[i].params;
   return Object.keys(p).some(k=>String(s[k])!==String(p[k]));
@@ -675,7 +695,9 @@ document.getElementById('pasteP').onclick=()=>{
   const s=prompt('Paste params JSON'); if(!s) return;
   try{ applyPreset(JSON.parse(s)); }catch(e){ alert('Not valid JSON'); }
 };
-document.getElementById('reset').onclick=()=>{ ART=null; applyPreset({...DEFAULTS}); };
+document.getElementById('reset').onclick=()=>{                 // full reset, unlike preset switching
+  ART=null; activePre=null; Object.assign(P,DEFAULTS); syncUI(); schedule();
+};
 
 /* --------------------------------------------------------- state + output */
 let stTimer=0;

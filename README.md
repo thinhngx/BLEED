@@ -52,9 +52,20 @@ Drag anywhere in the window, or click the drop zone:
 
 ## Presets
 
-Four built-ins, plus **Save current as…** to store your own in `localStorage`.
-**Copy params** / **Paste params** move a look between browsers or into a note.
-Your last state is restored automatically on reload.
+One editable library, seeded with four built-ins. Every row can be **↻ overwritten**
+with your current settings, **✎ renamed**, or **✕ deleted** — built-ins included
+(they lose their `FAC` badge once you overwrite them). **Restore factory** brings
+the original four back without touching anything you saved yourself.
+
+A preset is a **material recipe only**: inflate, threshold, dome, emboss, lighting,
+grain, and dissolve. Switching or overwriting a preset never touches your letters,
+font, weight, cap size, tracking, line height, rotation, artwork, or canvas size —
+those stay exactly as you left them no matter which look you try. An orange dot next
+to the active preset name means you've nudged a slider since loading it.
+
+**Save current as…** adds a new entry. **Copy params** / **Paste params** move the
+current material recipe via clipboard/JSON. Your last state is restored automatically
+on reload.
 
 ## Export
 
