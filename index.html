@@ -512,7 +512,7 @@ picker.onchange=()=>handleFiles([...picker.files]);
   if(e==='dragleave'&&ev.relatedTarget) return; veil.classList.remove('on');}));
 addEventListener('drop',ev=>{ ev.preventDefault(); handleFiles([...(ev.dataTransfer?.files||[])]); });
 
-const FONTS=[];
+const FONTS=[];                                  // [{family, face}]
 async function handleFiles(files){
   for(const f of files){
     const ext=(f.name.split('.').pop()||'').toLowerCase();
@@ -521,7 +521,9 @@ async function handleFiles(files){
       try{
         const ff=new FontFace(fam, await f.arrayBuffer());
         await ff.load(); document.fonts.add(ff);
-        if(!FONTS.includes(fam)) FONTS.push(fam);
+        const hit=FONTS.find(x=>x.family===fam);
+        if(hit){ document.fonts.delete(hit.face); hit.face=ff; }   // re-drop = replace
+        else FONTS.push({family:fam, face:ff});
         P.font=`"${fam}"`; P.src=0;
       }catch(e){ alert('Could not load '+f.name+'\n'+e.message); }
     } else if(['svg','png','jpg','jpeg','webp'].includes(ext)){
@@ -538,11 +540,14 @@ async function handleFiles(files){
 function drawChips(){
   const fc=document.getElementById('fontChips'), ac=document.getElementById('artChips');
   fc.innerHTML = FONTS.length
-    ? FONTS.map(f=>`<span class="chip ${P.font.includes(f)?'on':''}" data-font="${f}">
-         <span>A ${f}</span></span>`).join('')
+    ? FONTS.map(f=>`<span class="chip ${P.font.includes(f.family)?'on':''}" data-font="${f.family}">
+         <span>A ${f.family}</span><i title="remove font">✕</i></span>`).join('')
     : '<span style="color:#555">no custom fonts loaded</span>';
-  fc.querySelectorAll('[data-font]').forEach(el=>el.onclick=()=>{
-    P.font=`"${el.dataset.font}"`; P.src=0; syncUI(); schedule(); });
+  fc.querySelectorAll('[data-font]').forEach(el=>{
+    const fam=el.dataset.font;
+    el.querySelector('span').onclick=()=>{ P.font=`"${fam}"`; P.src=0; syncUI(); schedule(); };
+    el.querySelector('i').onclick=e=>{ e.stopPropagation(); removeFont(fam); };
+  });
   ac.innerHTML = ART
     ? `<span class="chip on" id="artChip"><span>⬡ ${ART.name}</span><i title="remove">✕</i></span>`
     : '';
@@ -551,6 +556,15 @@ function drawChips(){
     chip.querySelector('i').onclick=e=>{ e.stopPropagation(); ART=null; P.src=0; syncUI(); schedule(); };
     chip.onclick=()=>{ P.src=1; syncUI(); schedule(); };
   }
+}
+
+function removeFont(fam){
+  const i=FONTS.findIndex(x=>x.family===fam);
+  if(i<0) return;
+  try{ document.fonts.delete(FONTS[i].face); }catch(e){}
+  FONTS.splice(i,1);
+  if(P.font.includes(fam)){ P.font=DEFAULTS.font; P.src=0; }   // back to the stock stack
+  syncUI(); schedule();
 }
 
 /* ----------------------------------------------------------------- presets */
@@ -600,15 +614,27 @@ function loadState(){
     if(s){ Object.assign(P,s); if(P.src===1&&!ART) P.src=0; } }catch(e){}
 }
 document.getElementById('rnd').onclick=()=>{ P.seed=+(Math.random()*100).toFixed(2); schedule(); };
-document.getElementById('png').onclick=()=>{
+document.getElementById('png').onclick=async()=>{
+  const tag=(P.src===1&&ART?ART.name.replace(/\.[^.]+$/,''):String(P.text).split('\n')[0]||'bleed');
+  const name=`bleed-${tag.replace(/[^\w-]/g,'_')}-${Date.now()}.png`;
+  /* ask for the destination first, while the click is still a user gesture */
+  let handle=null;
+  if(window.showSaveFilePicker){
+    try{
+      handle=await window.showSaveFilePicker({ suggestedName:name,
+        types:[{description:'PNG image', accept:{'image/png':['.png']}}] });
+    }catch(e){ return; }                          // cancelled -> do nothing
+  }
   render(true);                                   // transparent pass
-  cv.toBlob(b=>{
+  const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
+  render();                                       // back to opaque preview
+  if(handle){
+    const w=await handle.createWritable(); await w.write(blob); await w.close();
+  }else{                                          // Safari / Firefox fallback
     const a=document.createElement('a');
-    a.href=URL.createObjectURL(b);
-    const tag=(P.src===1&&ART?ART.name.replace(/\.[^.]+$/,''):String(P.text).split('\n')[0]||'bleed');
-    a.download=`bleed-${tag.replace(/[^\w-]/g,'_')}-${Date.now()}.png`;
-    a.click(); render();                          // back to opaque preview
-  },'image/png');
+    a.href=URL.createObjectURL(blob); a.download=name; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  }
 };
 
 addEventListener('resize',schedule);
