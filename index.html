@@ -34,6 +34,15 @@
   .chk{display:flex;align-items:center;gap:6px;color:var(--dim)}
   .chk input{accent-color:var(--acc)}
   .note{color:#666;margin-top:8px}
+  .pre-row{display:flex;gap:3px;margin-bottom:4px;align-items:stretch}
+  .pre-row .pre-name{flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    display:flex;align-items:center;gap:5px}
+  .pre-row .pre-name.on{border-color:var(--acc);color:var(--acc)}
+  .pre-row .dot{color:#ff9f2e;font-size:14px;line-height:0}
+  .pre-row .ico{flex:0 0 24px;padding:5px 0;text-align:center;color:#666}
+  .pre-row .ico:hover{color:var(--acc)}
+  .pre-row .ico.del:hover{color:#ff5f5f;border-color:#ff5f5f}
+  .fac{color:#4a4a4a;font-size:9px;letter-spacing:.1em}
   .drop{border:1px dashed #333;border-radius:3px;padding:9px;color:#777;text-align:center;margin:2px 0 9px;cursor:pointer}
   .drop:hover{border-color:var(--acc);color:var(--acc)}
   .chips{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 8px}
@@ -65,12 +74,17 @@
     <div id="ui"></div>
 
     <fieldset><legend>Presets</legend>
-      <div class="grid" id="builtins"></div>
-      <div class="chips" id="userPresets" style="margin-top:8px"></div>
+      <div id="preList"></div>
       <div class="grid">
         <button id="savePre">Save current as…</button>
-        <button id="copyPre">Copy params</button>
+        <button id="factory">Restore factory</button>
       </div>
+      <div class="grid" style="margin-top:6px">
+        <button id="copyPre">Copy params</button>
+        <button id="pasteP">Paste params</button>
+      </div>
+      <p class="note">↻ overwrite with current settings · ✎ rename · ✕ delete.
+        An orange dot means you've drifted from the stored values.</p>
     </fieldset>
 
     <fieldset><legend>Output</legend>
@@ -80,7 +94,6 @@
       </div>
       <div class="grid" style="margin-top:6px">
         <button id="reset">Reset all</button>
-        <button id="pasteP">Paste params</button>
       </div>
       <p class="note">PNG exports on a transparent background &mdash; the ink keeps its dither, everything
         else is alpha 0. Bump Render&nbsp;scale for finer grain in print.</p>
@@ -156,7 +169,7 @@ const CTRL = [
   ]],
 ];
 
-const BUILTIN = {
+const FACTORY = {
   'MAHBS pillow':{src:0,inflate:.09,threshold:.36,core:.45,dome:1,aa:.05,emboss:.5,embossSoft:3,
     lightAng:125,lightAmt:.3,ambient:.84,normAmt:6,rim:0,grainMode:0,grainAmt:.34,grainScale:1,
     gBias:.35,dither:.35,dissolve:.18,dissolveAng:200,dissolveSoft:.5,warpAmt:0,
@@ -568,31 +581,90 @@ function removeFont(fam){
 }
 
 /* ----------------------------------------------------------------- presets */
-const LS_PRE='bleed.presets.v1', LS_ST='bleed.state.v1';
-const readUser=()=>{ try{ return JSON.parse(localStorage.getItem(LS_PRE)||'{}'); }catch(e){ return {}; } };
-const writeUser=o=>localStorage.setItem(LS_PRE, JSON.stringify(o));
-function applyPreset(o){ Object.assign(P,o); syncUI(); schedule(); }
+const LS_PRE='bleed.presets.v2', LS_OLD='bleed.presets.v1', LS_ST='bleed.state.v1';
+const snapshot=()=>{ const o={}; Object.keys(DEFAULTS).forEach(k=>o[k]=P[k]); return o; };
+
+/* the library is one editable list: factory entries are seeded in on first run,
+   after that every preset can be renamed, overwritten or deleted             */
+let LIB=[], activePre=null;
+const factoryList=()=>Object.entries(FACTORY).map(([name,params])=>({name,params:{...params},fac:1}));
+function loadLib(){
+  try{
+    const v2=JSON.parse(localStorage.getItem(LS_PRE)||'null');
+    if(Array.isArray(v2)){ LIB=v2; return; }
+  }catch(e){}
+  LIB=factoryList();
+  try{                                            // carry over v1 user presets
+    const v1=JSON.parse(localStorage.getItem(LS_OLD)||'{}');
+    Object.entries(v1).forEach(([name,params])=>{
+      if(!LIB.some(p=>p.name===name)) LIB.push({name,params});
+    });
+  }catch(e){}
+  saveLib();
+}
+const saveLib=()=>{ try{ localStorage.setItem(LS_PRE, JSON.stringify(LIB)); }catch(e){} };
+const uniqueName=(base,skip=-1)=>{
+  let n=base, i=2;
+  while(LIB.some((p,k)=>k!==skip && p.name===n)) n=`${base} ${i++}`;
+  return n;
+};
+function applyPreset(o,name){ Object.assign(P,o); activePre=name??null; syncUI(); schedule(); }
+function drifted(i){
+  const s=snapshot(), p=LIB[i].params;
+  return Object.keys(p).some(k=>String(s[k])!==String(p[k]));
+}
 function drawPresets(){
-  const bi=document.getElementById('builtins');
-  bi.innerHTML=Object.keys(BUILTIN).map(k=>`<button data-bi="${k}">${k}</button>`).join('');
-  bi.querySelectorAll('[data-bi]').forEach(b=>b.onclick=()=>applyPreset(BUILTIN[b.dataset.bi]));
-  const u=readUser(), up=document.getElementById('userPresets');
-  const keys=Object.keys(u);
-  up.innerHTML=keys.length
-    ? keys.map(k=>`<span class="chip" data-up="${encodeURIComponent(k)}"><span>${k}</span><i title="delete">✕</i></span>`).join('')
-    : '<span style="color:#555">no saved presets yet</span>';
-  up.querySelectorAll('[data-up]').forEach(el=>{
-    const name=decodeURIComponent(el.dataset.up);
-    el.querySelector('span').onclick=()=>applyPreset(u[name]);
-    el.querySelector('i').onclick=e=>{ e.stopPropagation();
-      const all=readUser(); delete all[name]; writeUser(all); drawPresets(); };
+  const list=document.getElementById('preList');
+  if(!LIB.length){ list.innerHTML='<span style="color:#555">no presets — hit “Save current as…”</span>'; return; }
+  list.innerHTML=LIB.map((p,i)=>{
+    const on=activePre===p.name;
+    const dot=on&&drifted(i)?'<span class="dot" title="edited since loading">•</span>':'';
+    return `<div class="pre-row" data-i="${i}">
+      <button class="pre-name ${on?'on':''}" data-a="apply" title="Load ${p.name}">${dot}<span>${p.name}</span>${p.fac?'<span class="fac">FAC</span>':''}</button>
+      <button class="ico" data-a="update" title="Overwrite with current settings">↻</button>
+      <button class="ico" data-a="rename" title="Rename">✎</button>
+      <button class="ico del" data-a="del" title="Delete">✕</button>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.pre-row').forEach(row=>{
+    const i=+row.dataset.i;
+    row.querySelectorAll('[data-a]').forEach(btn=>btn.onclick=()=>{
+      const p=LIB[i];
+      if(btn.dataset.a==='apply') applyPreset(p.params,p.name);
+      else if(btn.dataset.a==='update'){
+        if(!confirm(`Overwrite “${p.name}” with the current settings?`)) return;
+        p.params=snapshot(); delete p.fac; activePre=p.name; saveLib();
+      }
+      else if(btn.dataset.a==='rename'){
+        const n=(prompt('Rename preset', p.name)||'').trim();
+        if(!n||n===p.name) return;
+        const was=p.name; p.name=uniqueName(n,i);
+        if(activePre===was) activePre=p.name;
+        saveLib();
+      }
+      else if(btn.dataset.a==='del'){
+        if(!confirm(`Delete “${p.name}”?`)) return;
+        if(activePre===p.name) activePre=null;
+        LIB.splice(i,1); saveLib();
+      }
+      drawPresets();
+    });
   });
 }
-const snapshot=()=>{ const o={}; Object.keys(DEFAULTS).forEach(k=>o[k]=P[k]); return o; };
 document.getElementById('savePre').onclick=()=>{
   const name=(prompt('Preset name','My look')||'').trim();
   if(!name) return;
-  const all=readUser(); all[name]=snapshot(); writeUser(all); drawPresets();
+  const n=uniqueName(name);
+  LIB.push({name:n, params:snapshot()});
+  activePre=n; saveLib(); drawPresets();
+};
+document.getElementById('factory').onclick=()=>{
+  if(!confirm('Reset the factory presets to their original values and re-add any you deleted?\nYour own presets are untouched.')) return;
+  factoryList().forEach(f=>{
+    const hit=LIB.find(p=>p.name===f.name);
+    if(hit){ hit.params=f.params; hit.fac=1; } else LIB.unshift(f);
+  });
+  saveLib(); drawPresets();
 };
 document.getElementById('copyPre').onclick=async()=>{
   const s=JSON.stringify(snapshot());
@@ -638,7 +710,7 @@ document.getElementById('png').onclick=async()=>{
 };
 
 addEventListener('resize',schedule);
-loadState(); drawPresets(); syncUI();
+loadState(); loadLib(); drawPresets(); syncUI();
 if(document.fonts&&document.fonts.ready) document.fonts.ready.then(schedule);
 schedule();
 </script>
