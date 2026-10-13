@@ -8,6 +8,19 @@ The shader math and render passes are ported unchanged from the original single-
 now runs inside a typed control panel, an infinite canvas, and an image export pipeline. Acceptance tests
 cover the whole app.
 
+## Download (no install, no account)
+
+1. **[Download BLEED.html](https://github.com/thinhngx/BLEED/releases/latest/download/BLEED.html)**
+2. Double-click the downloaded file. It opens in your browser (Chrome, Safari, Edge or Arc).
+
+That's it: no GitHub account, no Node.js, no terminal. It's one self-contained file, so you can keep it
+anywhere, copy it to another computer, or send it to someone. Your settings and presets are saved in the
+browser you open it with. Fonts from the font picker load from Google Fonts, so stay online to use those.
+
+Want the original single-file v1?
+**[Download BLEED v1](https://github.com/thinhngx/BLEED/releases/download/v1.1/BLEED-v1.html)**.
+All versions are on the [Releases page](https://github.com/thinhngx/BLEED/releases).
+
 ---
 
 ## Tech stack
@@ -81,15 +94,20 @@ Nothing is uploaded. Everything runs locally in the browser.
   Figma or InDesign over any background.
 - **Defaults**: save the current state as the default, or import and export the full state as JSON.
 
-## Getting started
+## Building from source
 
-Requires a recent Node.js LTS and a browser with WebGL2.
+Only needed if you want to change BLEED. Requires a recent Node.js LTS and a browser with WebGL2.
 
 ```bash
 npm install
-npm run dev           # starts Vite on a free local port (127.0.0.1:3002 by default)
-npm run build         # type-check + production build into dist/
+npm run dev               # starts Vite on a free local port (127.0.0.1:3002 by default)
+npm run build             # type-check + production build into dist/
+npm run build:standalone  # type-check + one self-contained dist-standalone/BLEED.html
 ```
+
+`build:standalone` (`vite.standalone.config.mjs`) inlines every script, style and asset into a single
+HTML file that runs from `file://`. Attach that file to a GitHub Release as `BLEED.html` to update the
+download link above.
 
 ## Verification
 
