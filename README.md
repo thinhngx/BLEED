@@ -17,10 +17,6 @@ That's it: no GitHub account, no Node.js, no terminal. It's one self-contained f
 anywhere, copy it to another computer, or send it to someone. Your settings and presets are saved in the
 browser you open it with. Fonts from the font picker load from Google Fonts, so stay online to use those.
 
-Want the original single-file v1?
-**[Download BLEED v1](https://github.com/thinhngx/BLEED/releases/download/v1.1/BLEED-v1.html)**.
-All versions are on the [Releases page](https://github.com/thinhngx/BLEED/releases).
-
 ---
 
 ## Tech stack
