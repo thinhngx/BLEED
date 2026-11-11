@@ -8,6 +8,9 @@ The shader math and render passes are ported unchanged from the original single-
 now runs inside a typed control panel, an infinite canvas, and an image export pipeline. Acceptance tests
 cover the whole app.
 
+**v2.5** adds three factory presets, **RECAP-FAT**, **RECAP-THIN** and **RECAP-MID**: one soft, blue-noise
+material at three fatness levels.
+
 ## Download (no install, no account)
 
 1. **[Download BLEED.html](https://github.com/thinhngx/BLEED/releases/latest/download/BLEED.html)**
@@ -53,7 +56,7 @@ The foreground always renders on transparency, and the background is a separate 
 
 | Section | What it does |
 |---|---|
-| **Presets** | Editable material library seeded with **Blob**, **Razor** and **Pillow** |
+| **Presets** | Editable material library seeded with **Blob**, **Razor**, **Pillow**, **RECAP-FAT**, **RECAP-THIN** and **RECAP-MID** |
 | **Source** | Letters or artwork, text, font (Google Fonts picker or a dropped font file), rotate (0°, 90°, −90°), shift X/Y, artwork channel and fit |
 | **Inflate** | Amount, threshold (fatness), core, dome, edge, emboss and emboss softness |
 | **Shading** | Light and light angle, ambient, rim, normal strength, warp and warp scale, invert |
@@ -68,7 +71,7 @@ overwriting a preset never touches your text, font, size, tracking, rotation, ar
 
 - Click a row to apply it. A dot marks the active preset once you have edited it since loading.
 - Each row can be renamed, overwritten with the current settings, or deleted. Built-ins can be too.
-- **Save current** adds a new entry, and **Restore factory** brings the three built-ins back.
+- **Save current** adds a new entry, and **Restore factory** brings the six built-ins back.
 
 ### Input
 
@@ -132,7 +135,7 @@ src/app/
   bleed-artwork.ts              artwork rasterisation
   bleed-export.ts               high-resolution export staging
   bleed-params.ts               material parameters and defaults
-  bleed-preset-library.ts       preset model (Blob, Razor, Pillow)
+  bleed-preset-library.ts       preset library model (list edits, restore factory)
   bleed-preset-list-control.tsx custom preset list control
   app-acceptance-data.ts        acceptance requirements for this product
 e2e/                            Playwright specs and Toolcraft browser helpers

@@ -75,7 +75,7 @@ describe("BLEED presets", () => {
   it("ships the factory presets with material keys only", () => {
     const records = createBleedFactoryPresetRecords();
     expect(records).toHaveLength(bleedFactoryPresets.length);
-    expect(records.map((record) => record.name)).toEqual(["Blob", "Razor", "Pillow"]);
+    expect(records.map((record) => record.name)).toEqual(["Blob", "Razor", "Pillow", "RECAP-FAT", "RECAP-THIN", "RECAP-MID"]);
     for (const record of records) {
       const decoded = decodeBleedRecipe(record.recipe);
       expect(decoded).not.toBeNull();

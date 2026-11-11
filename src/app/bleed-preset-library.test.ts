@@ -18,9 +18,9 @@ const first = library.items[0]!;
 describe("BLEED preset library", () => {
   it("reads persisted objects, the earlier bare-array model, and junk", () => {
     expect(readBleedPresetLibrary({ activeId: first.id, items: library.items }).activeId).toBe(first.id);
-    expect(readBleedPresetLibrary(library.items).items).toHaveLength(3);
+    expect(readBleedPresetLibrary(library.items).items).toHaveLength(6);
     expect(readBleedPresetLibrary({ activeId: "gone", items: [] })).toEqual({ activeId: null, items: [] });
-    expect(readBleedPresetLibrary(42).items).toHaveLength(3);
+    expect(readBleedPresetLibrary(42).items).toHaveLength(6);
   });
 
   it("loads material targets plus the active row, never source or canvas", () => {
@@ -38,7 +38,7 @@ describe("BLEED preset library", () => {
     expect(uniqueBleedPresetName(library, first.name, first.id)).toBe(first.name);
     const removed = deleteBleedPreset({ ...library, activeId: first.id }, first.id);
     expect(removed.activeId).toBeNull();
-    expect(removed.items).toHaveLength(2);
+    expect(removed.items).toHaveLength(library.items.length - 1);
   });
 
   it("flags drift only after the material changes", () => {

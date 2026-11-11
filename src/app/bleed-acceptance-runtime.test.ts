@@ -108,7 +108,7 @@ describe("BLEED actions, presets and output acceptance", () => {
     expect(saved.items.at(-1)).toMatchObject({ name: "My look" });
     expect(saved.activeId).toBe(saved.items.at(-1)?.id);
     const restored = restoreBleedFactoryPresets({ activeId: null, items: saved.items.slice(-1) });
-    expect(restored.items.map((item) => item.name)).toEqual(["Blob", "Razor", "Pillow", "My look"]);
+    expect(restored.items.map((item) => item.name)).toEqual(["Blob", "Razor", "Pillow", "RECAP-FAT", "RECAP-THIN", "RECAP-MID", "My look"]);
   });
   for (const target of ["appearance.background", "export.includeBackground", "export.image.format", "export.image.resolution", "actions.output"]) {
     it(`bleed ${target} acceptance`, () => {

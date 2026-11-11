@@ -95,6 +95,17 @@ BLEED, a WebGL2 shader that inflates letterforms or dropped artwork into grainy,
 - Verification: `tsc` passes; `ai:check` passes (28 files); vitest 769 passed; `e2e/product-bleed.spec.ts` 13/13 passed; integrity passes (877 files) after restoring the generated identity files; `ai:check` passes (29 files) with the title effect; a Playwright probe confirmed the tab title is BLEED; `verify:delivery` passes every stage before browser evidence, which reports 78 missing attachments (37 `product-observable-change`).
 - Risks: browsers with an existing local workspace keep their old preset list until header Reset.
 
+### v2.5 RECAP factory presets
+
+- Entry type: focused
+- Change ID: bleed-v2-5-recap-presets
+- Active change: bleed-v2-5-recap-presets
+- Request: "pull the new 3 presets i made on local, save it as v2.5 then push to repo"; scope chosen: presets only on top of v1.2, with a v2.5 release and BLEED.html.
+- Changed owner: `bleedFactoryPresets` in `src/app/bleed-params.ts` (new ids `factory-recap-fat`, `factory-recap-thin`, `factory-recap-mid`); preset-count assertions in `app-schema.test.ts`, `bleed-preset-library.test.ts`, `bleed-acceptance-runtime.test.ts`; README.
+- User-visible result: a clean start and Restore factory list Blob, Razor, Pillow, RECAP-FAT, RECAP-THIN, RECAP-MID. Recipes are copied byte-for-byte from the user's local `presets.library` (user-4/5/6) in the dev workspace. The unpublished local Glass work is deliberately excluded.
+- Verification: Tier 2 (factory defaults only; schema, renderer and control shape unchanged). `tsc` passes; vitest `src/app` 769 passed (the delete assertion now derives its count from the factory library); `ai:check` passes (31 files); integrity (877) and docs checks pass. `npm run test:feature -- bleed.presets.library bleed.presets.actions` failed in harness preflight ("Node ESM resolver is unavailable", Node 25.6.1, before any product code ran), so the same row ran directly: `playwright test e2e/product-bleed.spec.ts -g "BLEED presets"` 1/1 passed. `build:standalone` passes; a headless `file://` probe of `BLEED.html` lists all six presets and applies RECAP-THIN. Skip: `verify:delivery` (initial receipt exists), performance (no authority).
+- Risks: existing browsers that already hold user-4/5/6 copies will show duplicates after Restore factory; delete the user copies or reset.
+
 A first delivery records request, references, applied contracts, decisions, alternatives, state/output mapping, checks and risks. A later `Entry type: focused` records `Change ID`, `Request`, `Changed owner`, `User-visible result`, `Verification` and `Risks`. `Verification` describes the actual checks and their results; command mentions never authorize execution.
 
 For a localized, user-authorized performance iteration, record only this separate domain authority in the selected entry:

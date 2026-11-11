@@ -102,7 +102,7 @@ type BleedFactoryPreset = Readonly<{
   params: Partial<BleedMaterial>;
 }>;
 
-/** Factory presets: the user's saved Blob, Razor and Pillow looks (replace the reference four). */
+/** Factory presets: the user's saved Blob, Razor, Pillow and RECAP (fat, thin, mid) looks (replace the reference four). */
 export const bleedFactoryPresets: readonly BleedFactoryPreset[] = [
   {
     id: "factory-blob",
@@ -138,6 +138,42 @@ export const bleedFactoryPresets: readonly BleedFactoryPreset[] = [
       grainScale: 0.9, inflate: 0.081, invert: false, lightAmt: 0.13,
       lightAng: 142, normAmt: 17.9, rim: 0.61, threshold: 0.305, warpAmt: 0,
       warpScale: 4.4,
+    },
+  },
+  {
+    id: "factory-recap-fat",
+    name: "RECAP-FAT",
+    params: {
+      aa: 0.25, ambient: 0.91, core: 0.56, dissolve: 0.15, dissolveAng: 107,
+      dissolveSoft: 0.56, dither: 0.13, dome: 1.1, emboss: 1.22,
+      embossSoft: 4.6, gBias: 0.31, grainAmt: 0.04, grainMode: "blue",
+      grainScale: 0.3, inflate: 0.05, invert: false, lightAmt: 0.2,
+      lightAng: 136, normAmt: 23.5, rim: 0, threshold: 0.255, warpAmt: 0,
+      warpScale: 1.9,
+    },
+  },
+  {
+    id: "factory-recap-thin",
+    name: "RECAP-THIN",
+    params: {
+      aa: 0.25, ambient: 1, core: 0.56, dissolve: 0.15, dissolveAng: 107,
+      dissolveSoft: 0.56, dither: 0.14, dome: 1.1, emboss: 1.22,
+      embossSoft: 4.6, gBias: 0.35, grainAmt: 0, grainMode: "blue",
+      grainScale: 0.3, inflate: 0.054, invert: false, lightAmt: 0.18,
+      lightAng: 116, normAmt: 16.2, rim: 0.78, threshold: 0.72, warpAmt: 0,
+      warpScale: 1.9,
+    },
+  },
+  {
+    id: "factory-recap-mid",
+    name: "RECAP-MID",
+    params: {
+      aa: 0.25, ambient: 1, core: 0.56, dissolve: 0.15, dissolveAng: 107,
+      dissolveSoft: 0.56, dither: 0.14, dome: 1.1, emboss: 1.22,
+      embossSoft: 4.6, gBias: 0.35, grainAmt: 0, grainMode: "blue",
+      grainScale: 0.3, inflate: 0.054, invert: false, lightAmt: 0.18,
+      lightAng: 116, normAmt: 16.2, rim: 0.78, threshold: 0.585, warpAmt: 0,
+      warpScale: 1.9,
     },
   },
 ];
